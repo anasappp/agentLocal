@@ -1,517 +1,113 @@
-# LocalAgent Lab：面向小模型的本地智能体运行时
-> 基于 Ollama + MCP + RAG + LangChain 的本地 Agent Runtime，重点解决小模型 Tool Calling 的延迟、稳定性和执行控制问题。
+# agentLocal
 
-**状态**
+**面向小模型的本地 Agent 运行时，让工具执行可控、任务结果可验证。**
 
-- Unit Tests：22 passed
-- Router Regression：21/21 passed
-- Core Live Eval：10/10 passed
-- Repo Debug Workflow：PASS
+agentLocal 基于 Ollama、LangChain、MCP 和 ChromaDB，提供本地问答、文件操作、Python 执行、知识库检索与仓库诊断能力。项目围绕一个具体问题展开：**在使用 3B 本地模型时，如何减少不必要的规划，让 Agent 更稳定地完成任务？**
 
-基于 **Ollama + MCP + RAG + LangChain** 实现的本地 AI Agent 系统。
+核心方案是按任务的确定性分流：普通问答直接调用模型，明确的工具任务走 Fast Path，固定步骤由 Workflow 执行，开放任务保留 ReAct；对于代码诊断，则由运行时控制读取、测试和报告生成，模型只承担根因推理。
 
-项目重点不是单纯“接入大模型和工具”，而是解决小参数本地模型在真实 Agent 场景中的几个工程问题：
+**已有评测记录：**路由回归 **21/21**、核心在线用例 **10/10**；在一个受控仓库诊断案例中，执行耗时由 **21.85 s 降至 5.93 s**，诊断校验由失败转为通过。结果来自仓库内的小规模评测，适用范围见下文。
 
-- 简单任务也走 ReAct，延迟高；
-- 小模型容易重复调用工具或选错工具；
-- 固定多步任务交给模型自由规划后稳定性较差；
-- Tool 调用成功不等于业务执行成功；
-- 模型可能声称“已经写入文件”，但实际环境中并没有文件；
-- RAG 检索结果质量高度依赖 Query；
-- 长链路任务中，模型同时承担规划、执行和推理，容易放大错误。
+[项目架构](#项目架构) · [关键实现](#关键实现) · [诊断案例](#诊断案例) · [评测结果](#评测结果) · [快速开始](#快速开始) · [当前边界与后续计划](#当前边界与后续计划)
 
-因此，本项目逐步将系统从：
+## 项目背景
 
-```text
-所有请求 → ReAct Agent
-```
+本地模型能支持低门槛的 AI 应用实验，但在接入工具后，回答质量之外还会出现执行问题：简单计算触发多轮规划、工具参数解析失败、固定流程插入无关搜索，以及模型声称任务完成却没有产生预期文件。
 
-演进为：
+agentLocal 将验收目标落实到环境中的真实结果：计算是否正确，错误是否被识别，报告是否落盘，诊断是否引用真实测试输出。主要面向三类场景：
 
-```text
-Direct Chat
-+
-Fast Path
-+
-Deterministic Workflow
-+
-ReAct
-+
-Semi-deterministic Workflow
-```
+| 场景 | 使用方式 | 关注的结果 |
+| --- | --- | --- |
+| 本地开发辅助 | 计算、读取文件、多轮文件指代 | 工具选择和参数准确，减少多余规划 |
+| 技术知识查询 | 检索本地 AI 工具文档并生成回答 | 检索内容相关，保留来源信息 |
+| 小型 Python 仓库诊断 | 读取指定文件、运行测试、分析根因并生成报告 | 使用真实执行证据，报告可检查 |
 
-核心设计原则是：
+## 项目架构
 
-> **确定性的执行交给 Runtime，不确定性的推理交给 LLM。**
-
----
-
-## 项目文档
-~~~~
-- [架构设计](docs/ARCHITECTURE.md)
-- [评测结果](docs/EVALUATION.md)
-- Evaluation Dashboard：`eval/reports/dashboard.html`
-
-# 1. 项目架构
+对话入口提供 OpenAI 风格的 `/v1/chat/completions` 接口，可连接 Open WebUI。当前路由由规则和最近对话上下文驱动；MCP Server 统一注册工具，Agent 通过其 REST 桥接接口 `/tools`、`/call` 发现和调用工具。
 
 ```mermaid
 flowchart TD
-    U[用户 / Open WebUI] --> API[OpenAI Compatible API]
-
-    API --> BG{是否为 Open WebUI 后台任务}
-
-    BG -->|是| DIRECT[Direct Chat]
-    BG -->|否| ROUTER[Intent + Context Router]
-
-    ROUTER -->|无需工具| DIRECT
-    ROUTER -->|确定性单工具| FAST[Fast Path]
-    ROUTER -->|固定多步骤| WF[Deterministic Workflow]
-    ROUTER -->|开放式任务| REACT[ReAct Agent]
-
-    FAST --> MCP[MCP Tool Layer]
-    WF --> MCP
-    REACT --> MCP
-
-    MCP --> FILE[File Tools]
-    MCP --> CODE[Code Exec]
-    MCP --> WEB[Web Search]
-    MCP --> RAG[RAG / ChromaDB]
-
-    RAG --> EMBED[Ollama Embedding]
-
-    subgraph Repo Debug Workflow
-        D1[读取仓库文件]
-        D2[真实执行测试]
-        D3[LLM 根因分析]
-        D4[Runtime 生成诊断报告]
-
-        D1 --> D2 --> D3 --> D4
-    end
+    A["Open WebUI / API 客户端"] --> B["FastAPI 对话接口"]
+    B --> C{"后台任务识别与规则路由"}
+    C -->|"普通问答或界面后台任务"| D["Direct Chat"]
+    C -->|"工具与参数明确"| E["Fast Path"]
+    C -->|"固定多步任务"| F["Deterministic Workflow"]
+    C -->|"需要动态规划"| G["ReAct"]
+    D --> H["Ollama 本地模型"]
+    G --> H
+    E --> I["MCP 工具服务"]
+    F --> I
+    G --> I
+    I --> J["文件 / Python / Web Search"]
+    I --> K["ChromaDB 知识检索"]
 ```
 
-系统将请求按“执行确定性”划分为四类。
+| 执行路径 | 决策方式 | 典型请求 |
+| --- | --- | --- |
+| Direct Chat | 无需工具时直接生成回答 | “解释一下时间复杂度” |
+| Fast Path | 运行时构造参数并直接执行工具 | “66 乘以 7 等于多少”“读取 notes.md” |
+| Deterministic Workflow | 运行时执行预定义顺序，并检查每一步结果 | “上网查一下 Python 最新版本，然后写入 python_version.md” |
+| ReAct | 模型动态选择工具与后续步骤 | 需要搜索、比较、总结再保存的开放任务 |
 
----
+Fast Path 省去的是模型的工具规划过程；其中知识库问答仍需要模型基于检索内容生成答案，不能将所有 Fast Path 请求都视为“零模型调用”。
 
-# 2. 四层执行策略
+**仓库诊断是独立工作流。** `run_repo_debug_workflow(...)` 接收仓库目录、测试文件、候选源码列表和报告路径，通过专门脚本调用；当前尚未接入上述聊天路由，不能将聊天入口描述为已自动支持任意仓库诊断。
 
-## 2.1 Direct Chat
+## 关键实现
 
-对于不需要工具的普通问答，直接调用本地模型，不进入 Agent。
+### 1. 根据任务确定性控制执行
 
-例如：
+系统优先识别固定工作流，再判断工具意图与参数是否明确。简单计算、文件读取等任务直接执行，避免让小模型重复生成工具规划。对于需要动态推理的任务，保留 LangChain ReAct 执行器。
 
-```text
-解释一下计算机视觉是什么
-什么是时间复杂度？
-```
+工具统一设置 `return_direct=False`，由运行时决定何时结束任务：计算可以在 Fast Path 中直接返回，代码执行也能作为多步 ReAct 任务的中间步骤，避免工具提前终止整个流程。
 
-避免无意义的 Agent Planning。
+代码入口：[路由与执行策略](https://github.com/anasappp/agentLocal/blob/main/agent/agent.py) · [工具适配器](https://github.com/anasappp/agentLocal/blob/main/agent/mcp_adapter.py)
 
----
+### 2. 工具协议适配与业务错误处理
 
-## 2.2 Fast Path
+面向文本 ReAct 的单输入形式，适配器将工具参数包装为 JSON 字符串，解析后转发给工具服务，并处理非法 JSON、非对象参数和工具结果。当前接入六类工具：
 
-对于能够直接确定：
+| 工具 | 能力 |
+| --- | --- |
+| `file_list` | 列举工作目录中的文件 |
+| `file_read` | 读取文本文件 |
+| `file_write` | 写入文本文件 |
+| `code_exec` | 在 Python 子进程中执行代码，返回输出和退出状态 |
+| `web_search` | 通过 DuckDuckGo 搜索网页 |
+| `query_knowledge_base` | 查询 ChromaDB，返回片段及来源 |
 
-```text
-调用哪个 Tool
-+
-Tool 参数是什么
-```
+在“搜索后保存”工作流中，运行时同时检查 HTTP 请求和业务载荷：出现 `error` 或没有可用搜索结果时停止，不执行文件写入；写入失败则明确返回失败原因。成功的 HTTP 响应不会被直接当作任务成功。
 
-的任务，不再让模型生成：
+代码入口：[工具注册与服务](https://github.com/anasappp/agentLocal/blob/main/mcp_server/server.py) · [工具实现](https://github.com/anasappp/agentLocal/tree/main/mcp_server/tools)
 
-```text
-Thought
-Action
-Action Input
-```
+### 3. 多轮上下文与界面后台任务分离
 
-而是由 Runtime 直接执行 MCP Tool。
+API 提取最近一次用户请求，并将此前消息传入运行时。针对“再乘以 11”“再读取刚才那个文件”等表达，规则从最近消息中恢复数值或路径；普通对话也会带入历史消息。
 
-例如：
+Open WebUI 的标题、标签和追问生成请求被识别后进入 Direct Chat，减少聊天历史中的文件名、数学表达式误触发工具的情况。这里实现的是**请求内的对话上下文处理**，尚未实现独立的跨会话长期记忆服务。
 
-```text
-66乘以7等于多少
-读取 restart_test.md
-帮我看看工作区有哪些文件
-```
+代码入口：[对话接口](https://github.com/anasappp/agentLocal/blob/main/agent/main.py) · [上下文与后台任务识别](https://github.com/anasappp/agentLocal/blob/main/agent/agent.py)
 
-执行链：
+### 4. 本地 RAG 与检索输入优化
 
-```text
-User
-↓
-Router
-↓
-Argument Builder
-↓
-MCP Tool
-↓
-Result
-```
+知识库构建脚本配置了 13 个目标 GitHub 仓库，采集 README 与文档目录中的 Markdown，经筛选、分块和向量化后写入 ChromaDB。实际入库量取决于远端内容及抓取结果。
 
-适用于：
+| 环节 | 当前实现 |
+| --- | --- |
+| 文档处理 | 过滤部分低价值文件；递归文本切分，块大小 500 字符、重叠 50 字符 |
+| 向量化与存储 | Ollama `nomic-embed-text` + 持久化 ChromaDB |
+| 查询清洗 | 去除“只使用检索结果”等回答要求，提取检索主题 |
+| 查询扩展 | 对已覆盖主题使用规则扩展，例如 `GGUF` 扩展为 `GGUF model format llama.cpp` |
+| 检索返回 | 默认 Top-4，保留片段内容、来源名称和 URL |
 
-- 精确计算；
-- 文件读取；
-- 文件写入；
-- 文件列表；
-- 明确 Web Search；
-- 明确知识库查询。
+这些策略旨在减少格式要求对向量检索的干扰。当前未提供清洗、扩展前后的独立消融结果，因此不宣称检索准确率提升了某个百分比。
 
----
+代码入口：[数据构建](https://github.com/anasappp/agentLocal/blob/main/scripts/ingest.py) · [向量存储](https://github.com/anasappp/agentLocal/blob/main/agent/rag.py) · [检索工具](https://github.com/anasappp/agentLocal/blob/main/mcp_server/tools/kb_search.py)
 
-## 2.3 Deterministic Workflow
+## 诊断案例
 
-对于需要多个 Tool、但执行顺序可以提前确定的任务，由 Runtime 编排。
-
-例如：
-
-```text
-搜索 Python 最新版本，
-然后把结果保存到 python_version.md
-```
-
-不需要让 ReAct 自由规划，而是：
-
-```text
-web_search
-↓
-结果合法性检查
-↓
-file_write
-```
-
-如果 Web Search 返回错误：
-
-```json
-{
-  "error": "..."
-}
-```
-
-Workflow 会直接终止，不再：
-
-```text
-搜索失败
-→ 写空文件
-→ 告诉用户“已经完成”
-```
-
----
-
-## 2.4 ReAct
-
-只有无法提前确定完整执行图的开放式任务才进入 ReAct。
-
-这样既保留 Agent 的动态规划能力，又避免所有请求都承担 ReAct 的额外延迟和解析风险。
-
----
-
-# 3. Semi-deterministic Workflow
-
-对于“执行步骤确定，但中间仍需要模型推理”的长任务，本项目进一步实现了 Semi-deterministic Workflow。
-
-典型场景：
-
-```text
-仓库级代码问题诊断
-```
-
-执行流程：
-
-```text
-Runtime
-│
-├─ file_list
-├─ file_read
-├─ code_exec
-│
-▼
-LLM Root Cause Reasoning
-│
-▼
-Runtime
-└─ file_write
-```
-
-其中：
-
-```text
-文件读取
-测试执行
-结果保存
-```
-
-由 Runtime 保证。
-
-只有：
-
-```text
-根据代码 + 测试结果判断根因
-```
-
-交给 LLM。
-
-这样减少小模型自由规划长链路时的无效 Tool Call 和错误传播。
-
----
-
-# 4. MCP Tool Layer
-
-目前接入的 MCP Tools：
-
-| Tool | 功能 |
-|---|---|
-| `file_list` | 查看工作区文件 |
-| `file_read` | 读取文件 |
-| `file_write` | 写入文件 |
-| `code_exec` | 执行 Python / 精确计算 |
-| `web_search` | Web 搜索 |
-| `query_knowledge_base` | 查询本地知识库 |
-
-为了提高 3B 小模型的 Tool Calling 稳定性，Tool 参数协议尽量保持简单。
-
-MCP Adapter 负责：
-
-```text
-LLM Tool Input
-↓
-参数解析
-↓
-MCP /call
-↓
-统一结果处理
-```
-
-减少模型直接处理复杂 Tool Schema 的压力。
-
----
-
-# 5. 多轮上下文
-
-系统支持多轮对话中的 Tool Context Recovery。
-
-例如：
-
-```text
-用户：66乘以99等于多少？
-助手：6534
-
-用户：再乘以11
-```
-
-第二轮需要恢复：
-
-```text
-上一轮数值
-+
-当前操作
-```
-
-另外支持文件指代：
-
-```text
-用户：读取 restart_test.md
-用户：再读取刚才那个文件
-```
-
-Runtime 会从最近上下文中恢复文件路径，而不是要求用户重新输入文件名。
-
----
-
-# 6. Open WebUI 后台任务隔离
-
-Open WebUI 会自动向模型发送：
-
-```text
-Generate title
-Generate tags
-Suggest follow-up questions
-```
-
-这些请求中可能包含完整聊天历史。
-
-如果聊天历史存在：
-
-```text
-数学表达式
-文件名
-GGUF
-Web Search
-```
-
-普通关键词 Router 可能误触发 Tool。
-
-因此系统优先识别 Open WebUI Background Task：
-
-```text
-Open WebUI Metadata
-↓
-Direct Chat
-```
-
-不进入 Tool Router。
-
----
-
-# 7. RAG
-
-本地知识库基于：
-
-```text
-ChromaDB
-+
-nomic-embed-text
-+
-Ollama
-```
-
-构建。
-
-当前成功完成：
-
-```text
-13 个 GitHub 仓库
-207 个文件
-5898 个 Chunks
-```
-
-知识库覆盖：
-
-```text
-Ollama
-llama.cpp
-LocalAI
-Open WebUI
-AnythingLLM
-PrivateGPT
-LiteLLM
-GPT4All
-Continue
-Tabby
-...
-```
-
----
-
-## 7.1 Retrieval Query Cleaning
-
-用户输入：
-
-```text
-根据知识库解释一下 GGUF，
-只使用检索结果里明确出现的信息
-```
-
-不会直接全部送进 Vector Search。
-
-系统先拆出真正检索对象：
-
-```text
-GGUF
-```
-
-避免：
-
-```text
-回答格式要求
-```
-
-污染 Retrieval Query。
-
----
-
-## 7.2 Query Expansion
-
-测试发现，仅搜索：
-
-```text
-GGUF
-```
-
-容易召回：
-
-```text
-出现 GGUF 字样
-```
-
-但不一定是定义型内容。
-
-因此加入轻量 deterministic expansion：
-
-```text
-GGUF
-↓
-GGUF model format llama.cpp
-```
-
-无需额外消耗一次 LLM Query Rewrite。
-
----
-
-# 8. Tool Error Handling
-
-项目中特别区分：
-
-```text
-HTTP 成功
-```
-
-和：
-
-```text
-业务成功
-```
-
-例如 MCP Server 可能返回：
-
-```http
-HTTP 200
-```
-
-但内容为：
-
-```json
-{
-  "error": "202 Ratelimit"
-}
-```
-
-因此 Workflow 会额外检查：
-
-```text
-if payload.get("error"):
-    ...
-```
-
-而不是仅通过 HTTP Status 判断成功。
-
-对于外部搜索失败：
-
-```text
-Search Error
-↓
-Workflow Stop
-```
-
-不会继续：
-
-```text
-让 LLM 根据错误信息补答案
-```
-
-降低 Hallucination 风险。
-
----
-
-# 9. Repository Debugging Hero Case
-
-项目构造了一个可重复的受控 Repo Debug Case。
-
-代码：
+仓库包含一个可重置的 Python 演示项目：`calculator.py` 中的 `add` 本应返回两数之和，却写成了减法。
 
 ```python
 def add(a: int, b: int) -> int:
@@ -519,652 +115,191 @@ def add(a: int, b: int) -> int:
     return a - b
 ```
 
-测试期望：
+运行测试得到 `add(7, 5) expected 12, got 2`。工作流读取指定源码与测试文件，真实执行测试，将源码和输出交给本地模型，要求返回根因文件、错误逻辑、证据与最小修复建议。运行时检查必填字段及根因文件是否属于候选源码，再生成 Markdown 报告。
 
-```text
-add(7, 5) = 12
-```
+验收脚本检查报告是否存在、四个章节是否齐全、根因和测试证据是否符合预期，以及 `calculator.py` 是否保持不变。测试中的 `AssertionError` 是诊断证据，工作流的成功意味着完成了正确诊断，而不是测试已经修复通过。
 
-真实执行测试：
+| 验收项 | ReAct 基线记录 | 半确定性工作流记录 |
+| --- | --- | --- |
+| 总体验收 | 未通过 | 通过 |
+| 根因判定 | 错误指向测试文件 | 正确指向 `calculator.py` 的 `return a - b` |
+| 报告存在、章节完整 | 通过 | 通过 |
+| 测试证据检查 | 通过 | 通过 |
+| 源码保持不变 | 通过 | 通过 |
+| 执行耗时 | 21,848.45 ms | 5,926.55 ms |
 
-```text
-AssertionError:
-add(7, 5) expected 12, got 2
-```
+两条已保存记录的耗时比约为 **3.69**，工作流耗时减少约 **72.9%**。这是同一个受控样例下两套执行方案的观察结果，执行流程与提示词均有差异，且未提供重复实验分布；不能据此推出通用提速倍数，也不能将变化全部归因于单一改动。
 
-系统需要完成：
+实现与证据：[工作流源码](https://github.com/anasappp/agentLocal/blob/main/agent/repo_debug_workflow.py) · [ReAct 原始记录](https://github.com/anasappp/agentLocal/blob/main/eval/reports/hero_demo_react_baseline.json) · [工作流原始记录](https://github.com/anasappp/agentLocal/blob/main/eval/reports/repo_debug_workflow_latest.json)
 
-```text
-读取仓库
-↓
-读取源码
-↓
-真实运行测试
-↓
-分析 Root Cause
-↓
-生成 debugging report
-↓
-保持源码不变
-```
+## 评测结果
 
-最终能够正确定位：
+评测分为路由回归、真实服务用例与受控任务验收，分别回答“是否走对执行路径”“能否返回预期结果”和“任务是否实际完成”。
 
-```text
-calculator.py
-```
+| 评测层 | 覆盖内容 | 仓库保存结果 | 证据 |
+| --- | --- | --- | --- |
+| Router Regression | 中英文请求、四类路径、多轮指代、后台任务与负样本 | 21/21 | [路由报告](https://github.com/anasappp/agentLocal/blob/main/eval/reports/router_eval_latest.json) |
+| Core Live Eval | 问答、计算、文件、多轮、错误处理、RAG | 10/10 | [在线报告](https://github.com/anasappp/agentLocal/blob/main/eval/reports/live_eval_latest.json) |
+| Repo Debug | 报告、根因、真实测试证据、源码不变 | 1 个受控样例通过 | [诊断报告](https://github.com/anasappp/agentLocal/blob/main/eval/reports/repo_debug_workflow_latest.json) |
 
-中的：
+核心在线用例的延迟统计如下：
 
-```python
-def add(a: int, b: int) -> int:
-    return a - b
-```
+| 指标 | 数值 |
+| --- | ---: |
+| P50 | 429.25 ms |
+| 平均值 | 1,526.11 ms |
+| P95 | 7,139.41 ms |
 
-并给出建议：
+统计口径采用评测脚本的 nearest-rank 算法。样本量为 10，因此此处 P95 对应最大延迟，来自 RAG 用例；不能作为高并发生产服务的延迟承诺。
 
+评测结果还需结合以下条件理解：
 
-```python
-def add(a: int, b: int) -> int:
-    return a + b
-```
+- Core Live Eval 默认排除依赖外部搜索服务的用例，`10/10` 不包含 Web Search 的稳定性证明。
+- 在线用例主要使用关键词、正则等规则判定；这适合回归检查，尚不足以评估复杂推理和回答事实一致性。
+- 已保存报告未完整记录硬件、模型量化、重复次数等实验条件；本页引用历史报告，并非一次新的本机实测。
+- API 的 `usage` 当前为占位值，报告中的 `tokens: 0` 不代表真实零消耗，暂不据此计算成本收益。
 
+仓库另外提供 Pytest 测试和 GitHub Actions 配置，在 Windows / Python 3.13 环境执行单元测试及路由回归；Live Eval 和诊断评测需要本地服务及模型，未纳入当前 CI。
 
-同时验证：
+[评测脚本](https://github.com/anasappp/agentLocal/tree/main/eval) · [测试代码](https://github.com/anasappp/agentLocal/tree/main/tests) · [CI 配置](https://github.com/anasappp/agentLocal/blob/main/.github/workflows/ci.yml) · [Dashboard 文件](https://github.com/anasappp/agentLocal/blob/main/eval/reports/dashboard.html)
 
-```text
-calculator.py 未被自动修改
-```
+## 快速开始
 
----
+### 1. 准备环境
 
-# 10. 为什么没有继续使用 Free-form ReAct
-
-最初 Repo Debug Case 使用自由 ReAct。
-
-实际测试过程中出现：
-
-```text
-读取文件
-↓
-无关 query_knowledge_base
-↓
-无关 web_search
-↓
-继续读取文件
-↓
-执行测试
-↓
-生成报告
-```
-
-虽然模型最终可能完成部分任务，但：
-
-- Tool 调用冗余；
-- 链路更长；
-- 延迟更高；
-- Root Cause 曾错误归因；
-- 曾出现模型声称“文件已经生成”，实际文件不存在。
-
-因此将该任务改为：
-
-```text
-Semi-deterministic Workflow
-```
-
-Runtime 负责确定步骤，LLM 只负责真正需要推理的部分。
-
----
-
-# 11. 自动化评测
-
-项目不是只通过人工聊天验证，而是建立了三层 Eval。
-
----
-
-## 11.1 Router Regression Eval
-
-测试：
-
-- Direct；
-- Fast Path；
-- Workflow；
-- ReAct；
-- 中文 / 英文；
-- 多轮上下文；
-- Open WebUI Background Task；
-- Router 负样本。
-
-当前结果：
-
-```text
-21 / 21
-```
-
-即：
-
-```text
-21/21 routing regression cases passed
-```
-
----
-
-## 11.2 Live Agent Eval
-
-覆盖：
-
-- Direct Chat；
-- 精确计算；
-- File Tool；
-- 多轮上下文；
-- Error Recovery；
-- RAG。
-
-当前核心测试：
-
-```text
-10 / 10
-```
-
-本地测试环境结果：
-
-| 指标 | 结果 |
-|---|---:|
-| Core Task Success | 10 / 10 |
-| P50 Latency | 429.25 ms |
-| Average Latency | 1526.11 ms |
-| P95 Latency | 7139.41 ms |
-
-其中 RAG 是主要长尾。
-
-> 当前 Eval 是项目内部核心回归集，用于架构迭代验证，不代表通用 Agent Benchmark。
-
----
-
-# 12. ReAct vs Workflow 对比
-
-在同一个受控 Repo Debug Case 上：
-
-| 架构 | Task Result | Latency |
-|---|---:|---:|
-| Free-form ReAct | FAIL | ≈21.8 s |
-| Semi-deterministic Workflow | PASS | ≈5.9 s |
-
-在该受控测试中，Workflow 相比自由 ReAct：
-
-```text
-约 3.69× faster
-```
-
-同时实现：
-
-```text
-Root Cause 正确
-真实 Test Evidence
-报告成功落盘
-源码保持不变
-```
-
-这里的 3.69× 仅代表当前受控 Repo Debug Case，不作为通用 Agent 性能结论。
-
----
-
-# 13. Evaluation Dashboard
-
-项目提供本地 HTML Dashboard。
-
-展示：
-
-```text
-Router Accuracy
-Core Task Success
-P50 Latency
-Average Latency
-P95 Latency
-Category Success
-Per-case Latency
-Repo Debug Workflow
-ReAct vs Workflow
-```
-
-生成：
+使用 Python 3.13、Git 和已安装的 Ollama；Open WebUI 为可选界面，需要 Docker。以下命令在仓库根目录执行，以 Windows PowerShell 为例。
 
 ```powershell
-python -m eval.generate_dashboard
-```
-
-输出：
-
-```text
-eval/reports/dashboard.html
-```
-
----
-
-# 14. 项目目录
-
-```text
-mcp-ollama-agent/
-│
-├── agent/
-│   ├── agent.py
-│   ├── main.py
-│   ├── config.py
-│   ├── mcp_adapter.py
-│   ├── rag.py
-│   └── repo_debug_workflow.py
-│
-├── mcp_server/
-│   ├── server.py
-│   └── tools/
-│
-├── eval/
-│   ├── cases.json
-│   ├── live_cases.json
-│   ├── run_router_eval.py
-│   ├── run_live_eval.py
-│   ├── run_hero_demo.py
-│   ├── run_repo_debug_workflow.py
-│   ├── generate_dashboard.py
-│   └── reports/
-│
-├── scripts/
-│   ├── ingest.py
-│   ├── setup_hero_demo.py
-│   └── start.ps1
-│
-├── tests/
-├── workspace/
-├── docker-compose.yml
-├── requirements.txt
-└── README.md
-```
-
----
-
-# 15. 技术栈
-
-```text
-Python 3.13
-FastAPI
-LangChain
-Ollama
-Qwen2.5 3B
-MCP
-ChromaDB
-nomic-embed-text
-Open WebUI
-Docker
-Pytest
-```
-
----
-
-# 16. 快速启动
-
-## 16.1 创建虚拟环境
-
-```powershell
+git clone https://github.com/anasappp/agentLocal.git
+cd agentLocal
 python -m venv .venv
-
 .\.venv\Scripts\Activate.ps1
-
-pip install -r requirements.txt
+python -m pip install -r requirements.txt
+Copy-Item .env.example .env
 ```
 
----
+macOS / Linux 的虚拟环境激活命令为 `source .venv/bin/activate`，复制配置使用 `cp .env.example .env`，其余 Python 模块命令一致。
 
-## 16.2 Ollama 模型
+确认 Ollama 服务已运行；如尚未启动，在独立终端运行 `ollama serve`。随后下载模型：
 
 ```powershell
 ollama pull qwen2.5:3b
-
 ollama pull nomic-embed-text
 ```
 
----
+核心配置如下，字段名与当前代码一致；完整配置见 [`.env.example`](https://github.com/anasappp/agentLocal/blob/main/.env.example)。
 
-## 16.3 环境变量
-
-从：
-
-```text
-.env.example
-```
-
-创建：
-
-```text
-.env
-```
-
-示例：
-
-```env
-OLLAMA_BASE_URL=http://127.0.0.1:11434
-
+```dotenv
+OLLAMA_BASE_URL=http://localhost:11434
 OLLAMA_MODEL=qwen2.5:3b
-
 OLLAMA_EMBED_MODEL=nomic-embed-text
-
-MCP_HOST=0.0.0.0
-
-MCP_PORT=8001
-
-AGENT_HOST=0.0.0.0
-
-AGENT_PORT=8000
-
-CHROMA_PATH=.chroma
-
-WORKSPACE_DIR=./workspace
-
+MCP_SERVER_URL=http://localhost:8001
+MCP_SERVER_HOST=127.0.0.1
+MCP_SERVER_PORT=8001
+AGENT_API_HOST=127.0.0.1
+AGENT_API_PORT=8000
+CHROMA_PERSIST_DIR=.chroma
+FILE_OPS_ROOT=./workspace
 LOG_LEVEL=INFO
 ```
 
-敏感 Token 不提交 Git。
+### 2. 启动工具服务与 Agent
 
----
-
-## 16.4 构建知识库
+在两个已激活虚拟环境的终端中依次运行，先启动 MCP 服务，再启动 Agent，以便加载工具列表。
 
 ```powershell
-python .\scripts\ingest.py
+# 终端一
+python -m mcp_server.main
 ```
-
----
-
-## 16.5 启动服务
 
 ```powershell
-.\scripts\start.ps1
+# 终端二
+python -m agent.main
 ```
 
-Agent：
+可通过 [MCP 健康检查](http://127.0.0.1:8001/health)、[Agent 健康检查](http://127.0.0.1:8000/health) 和 [API 文档](http://127.0.0.1:8000/docs) 查看服务。健康接口响应不等于所有工具都可用，还应完成下面的计算请求。
 
-```text
-http://127.0.0.1:8000
-```
-
-MCP：
-
-```text
-http://127.0.0.1:8001
-```
-
----
-
-# 17. 运行评测
-
-Router：
+### 3. 发起一次工具调用
 
 ```powershell
+$body = @{
+    model = "local-agent"
+    messages = @(
+        @{ role = "user"; content = "66*7" }
+    )
+    stream = $false
+} | ConvertTo-Json -Depth 5
+
+$response = Invoke-RestMethod `
+    -Uri "http://127.0.0.1:8000/v1/chat/completions" `
+    -Method Post `
+    -ContentType "application/json" `
+    -Body $body
+
+$response.choices[0].message.content
+```
+
+预期输出为 `462`。
+
+### 4. 按需启用知识库与 Web 界面
+
+知识库问答需要先构建索引。该步骤下载公开 GitHub 文档并调用本地 embedding 模型，需要网络连接；普通计算和文件工具不依赖这一步。
+
+```powershell
+python scripts/ingest.py
+```
+
+索引构建完成后，若 Agent / MCP 服务已经启动，重启服务再尝试“根据知识库解释一下 GGUF”。
+
+启用 Open WebUI 时，将 `.env` 中 `AGENT_API_HOST` 改为 `0.0.0.0` 并重启 Agent，使容器可以连接宿主机服务，再运行：
+
+```powershell
+docker compose up -d
+```
+
+打开 [Open WebUI](http://localhost:3000)，选择 `local-agent`。Compose 当前只启动 WebUI，Ollama、MCP 和 Agent 仍在宿主机运行；该配置用于可信本地环境。
+
+## 复现评测
+
+在已激活虚拟环境的仓库根目录执行：
+
+```powershell
+# 单元测试与规则路由回归
+python -m pytest -q
 python -m eval.run_router_eval
-```
 
-Live Agent：
-
-```powershell
+# 核心真实服务用例：需要 Agent、MCP、Ollama，以及已构建的知识库
 python -m eval.run_live_eval
-```
 
-Repo Debug：
+# 可选：纳入依赖外部搜索服务的用例
+python -m eval.run_live_eval --include-external
 
-```powershell
+# 半确定性诊断：需要 MCP 和 Ollama，脚本会重建演示仓库
 python -m eval.run_repo_debug_workflow
-```
 
-Dashboard：
+# 可选：通过聊天 Agent 重跑 ReAct 诊断路径
+python -m eval.run_hero_demo
 
-```powershell
+# 生成本地 HTML 评测看板
 python -m eval.generate_dashboard
 ```
 
-单元测试：
+诊断脚本会重置 `workspace/hero_repo`，并重建 `workspace/hero_debug_report.md`；请将该目录保留给演示样例。两种诊断脚本按顺序运行，避免互相覆盖演示环境。
 
-```powershell
-pytest -v
-```
+结果保存在 `eval/reports/`，看板为 `eval/reports/dashboard.html`，下载或在本地打开可查看。重跑 ReAct 脚本更新的是 `hero_demo_latest.*`，已保存的 `hero_demo_react_baseline.*` 是历史基线，二者需要区分。
 
----
+## 代码导航
 
-# 18. 核心工程决策
+| 模块 | 职责 |
+| --- | --- |
+| [`agent/agent.py`](https://github.com/anasappp/agentLocal/blob/main/agent/agent.py) | 路由、Fast Path、固定工作流、ReAct、上下文和检索输入处理 |
+| [`agent/main.py`](https://github.com/anasappp/agentLocal/blob/main/agent/main.py) | 对话 API、消息历史处理、响应封装 |
+| [`agent/mcp_adapter.py`](https://github.com/anasappp/agentLocal/blob/main/agent/mcp_adapter.py) | 工具发现、JSON 参数解析、LangChain 工具适配 |
+| [`agent/repo_debug_workflow.py`](https://github.com/anasappp/agentLocal/blob/main/agent/repo_debug_workflow.py) | 指定仓库诊断与报告生成 |
+| [`mcp_server/`](https://github.com/anasappp/agentLocal/tree/main/mcp_server) | MCP 工具注册、传输与 REST 桥接、六类工具实现 |
+| [`scripts/ingest.py`](https://github.com/anasappp/agentLocal/blob/main/scripts/ingest.py) | 文档采集、清洗、切分与入库 |
+| [`eval/`](https://github.com/anasappp/agentLocal/tree/main/eval) | 用例、评测脚本、历史结果和 Dashboard |
 
-## 为什么不让所有任务都走 ReAct？
+**主要依赖：**Python 3.13、FastAPI、LangChain 0.3.x、Ollama、Qwen2.5 3B、MCP Python SDK、ChromaDB、nomic-embed-text、Pytest；Open WebUI 与 Docker 用于可选界面。具体版本以 [`requirements.txt`](https://github.com/anasappp/agentLocal/blob/main/requirements.txt) 为准。
 
-因为大量请求根本不需要 Planning。
 
-对于确定性任务，多一次 LLM Planning 意味着：
-
-```text
-更多延迟
-+
-更多 Token
-+
-Parser 风险
-+
-Tool Selection 风险
-```
-
-但没有增加真正的智能价值。
-
----
-
-## 为什么仍然保留 ReAct？
-
-因为部分任务的执行图无法提前确定。
-
-因此本项目不是：
-
-```text
-去掉 Agent
-```
-
-而是：
-
-```text
-只在 Agent Planning 真正有价值时使用 Agent
-```
-
----
-
-## 为什么 `code_exec` 不再使用 `return_direct=True`？
-
-项目早期为了防止小模型重复调用计算器，曾将：
-
-```python
-return_direct=True
-```
-
-绑定到 `code_exec`。
-
-后来出现 Repo Debug 等多步任务后发现：
-
-```text
-code_exec
-```
-
-有时只是中间步骤。
-
-如果 Tool 本身直接终止 Agent，就无法继续：
-
-```text
-code_exec
-↓
-file_write
-```
-
-因此最终改为：
-
-```text
-Tool
-→ 负责执行
-
-Runtime
-→ 决定任务是否结束
-```
-
-简单数学通过 Fast Path 直接结束，而复杂 ReAct 可以在 `code_exec` 后继续。
-
----
-
-# 19. 项目演进
-
-项目的核心演进过程：
-
-```text
-阶段 1
-
-Everything
-→ ReAct
-```
-
-↓
-
-```text
-阶段 2
-
-Direct
-+
-ReAct
-```
-
-↓
-
-```text
-阶段 3
-
-Direct
-+
-Fast Path
-+
-ReAct
-```
-
-↓
-
-```text
-阶段 4
-
-Direct
-+
-Fast Path
-+
-Deterministic Workflow
-+
-ReAct
-```
-
-↓
-
-```text
-阶段 5
-
-Runtime-controlled Execution
-+
-LLM Reasoning Node
-```
-
-最终形成的设计思想：
-
-> **不要让 LLM 控制所有步骤，而是把模型能力放在真正需要语义理解与推理的位置。**
-
----
-
-# 20. 当前限制
-
-## Web Search
-
-当前 DuckDuckGo Provider 偶发：
-
-```text
-202 Ratelimit
-```
-
-项目已经做到：
-
-```text
-Error 正确传播
-+
-不写空结果
-+
-不让 LLM 根据失败结果编答案
-```
-
-暂未继续引入多 Search Provider。
-
----
-
-## RAG Grounding
-
-已经实现：
-
-```text
-Query Cleaning
-+
-Query Expansion
-```
-
-但尚未实现严格的 Claim-level Citation：
-
-```text
-回答 [1]
-
-Sources:
-[1] ...
-```
-
----
-
-## Token Usage
-
-当前 OpenAI-compatible Endpoint 没有提供可靠的 Token Usage 数据，因此不将：
-
-```text
-Tokens = 0
-```
-
-解释为真实零消耗。
-
----
-
-## Benchmark Scope
-
-当前：
-
-```text
-21/21
-10/10
-```
-
-属于项目内部 Regression / Core Eval。
-
-不作为通用 Agent 能力的 100% Accuracy 宣传。
-
----
-
-# 21. 项目核心结论
-
-本项目最重要的工程结论不是：
-
-> “给本地模型接了几个 Tool”。
-
-而是：
-
-> **根据任务确定性，将 Direct、Fast Path、Workflow 和 ReAct 分层；让 Runtime 控制确定执行，让 LLM 专注于真正需要推理的部分。**
-
-这种设计在当前受控 Repo Debug Case 中，相比 Free-form ReAct：
-
-```text
-FAIL → PASS
-约 21.8 s → 约 5.9 s
-```
-
-同时提高了：
-
-```text
-稳定性
-可解释性
-可评测性
-执行边界控制
-```
