@@ -1,0 +1,29 @@
+services:
+  open-webui:
+    image: ghcr.io/open-webui/open-webui:main
+    container_name: open-webui
+    restart: unless-stopped
+    ports:
+      - "3000:8080"
+    volumes:
+      - open-webui:/app/backend/data
+    environment:
+      # 普通 Ollama 模型
+      - OLLAMA_BASE_URL=http://host.docker.internal:11434
+
+      # local-agent
+      - OPENAI_API_BASE_URLS=http://host.docker.internal:8000/v1
+      - OPENAI_API_KEYS=local
+
+      # RAG embedding 也使用 Ollama
+      - RAG_EMBEDDING_ENGINE=ollama
+      - RAG_EMBEDDING_MODEL=nomic-embed-text
+      - RAG_OLLAMA_BASE_URL=http://host.docker.internal:11434
+
+      # 本项目由 docker-compose 管理配置，不让旧数据库覆盖环境变量
+      - ENABLE_PERSISTENT_CONFIG=false
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+volumes:
+  open-webui:

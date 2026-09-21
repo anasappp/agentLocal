@@ -1,0 +1,25 @@
+{
+  "success": true,
+  "latency_ms": 5926.55,
+  "report_exists": true,
+  "structure_ok": true,
+  "diagnosis_ok": true,
+  "evidence_ok": true,
+  "source_unchanged": true,
+  "diagnosis": {
+    "root_cause_file": "calculator.py",
+    "root_cause": "return a - b",
+    "evidence": "The `add` function in `calculator.py` returns `a - b` instead of `a + b`, which causes the test to fail because `add(7, 5)` should return `12` but returns `2`.",
+    "recommended_fix": "Change `return a - b;` to `return a + b;` in the `add` function."
+  },
+  "files_read": [
+    "README.md",
+    "calculator.py",
+    "test_calculator.py"
+  ],
+  "test_result": {
+    "returncode": 1,
+    "stdout": "",
+    "stderr": "Traceback (most recent call last):\n  File \"D:\\programGithub\\mcp-ollama-agent\\workspace\\hero_repo\\test_calculator.py\", line 17, in <module>\n    main()\n    ~~~~^^\n  File \"D:\\programGithub\\mcp-ollama-agent\\workspace\\hero_repo\\test_calculator.py\", line 9, in main\n    raise AssertionError(\n        f\"add(7, 5) expected {expected}, got {actual}\"\n    )\nAssertionError: add(7, 5) expected 12, got 2\n"
+  }
+}

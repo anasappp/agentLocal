@@ -1,0 +1,147 @@
+[
+  {
+    "id": "direct_cv_cn",
+    "category": "direct",
+    "turns": [
+      "解释一下计算机视觉是什么"
+    ],
+    "check": {
+      "type": "all_contains",
+      "values": ["计算机视觉"]
+    }
+  },
+  {
+    "id": "calc_cn",
+    "category": "tool_exact",
+    "turns": [
+      "66乘以7等于多少"
+    ],
+    "check": {
+      "type": "all_contains",
+      "values": ["462"]
+    }
+  },
+  {
+    "id": "calc_large_cn",
+    "category": "tool_exact",
+    "turns": [
+      "用计算器算一下12345乘以6789"
+    ],
+    "check": {
+      "type": "all_contains",
+      "values": ["83810205"]
+    }
+  },
+  {
+    "id": "file_write",
+    "category": "file",
+    "turns": [
+      "创建 eval_probe.txt，内容是 EVAL-PROBE-2026"
+    ],
+    "check": {
+      "type": "any_contains",
+      "values": [
+        "eval_probe.txt",
+        "成功",
+        "written",
+        "saved",
+        "EVAL-PROBE-2026"
+      ]
+    }
+  },
+  {
+    "id": "file_read",
+    "category": "file",
+    "turns": [
+      "读取 eval_probe.txt"
+    ],
+    "check": {
+      "type": "all_contains",
+      "values": ["EVAL-PROBE-2026"]
+    }
+  },
+  {
+    "id": "file_followup_cn",
+    "category": "multi_turn",
+    "turns": [
+      "读取 eval_probe.txt",
+      "再读取刚才那个文件"
+    ],
+    "check": {
+      "type": "all_contains",
+      "values": ["EVAL-PROBE-2026"]
+    }
+  },
+  {
+    "id": "memory_cn",
+    "category": "multi_turn",
+    "turns": [
+      "记住这个代号：ALPHA24681，只回复记住了",
+      "我刚才让你记住的代号是什么？"
+    ],
+    "check": {
+      "type": "all_contains",
+      "values": ["ALPHA24681"]
+    }
+  },
+  {
+    "id": "missing_file",
+    "category": "error_recovery",
+    "turns": [
+      "读取 __eval_missing_92731__.txt"
+    ],
+    "check": {
+      "type": "any_contains",
+      "values": [
+        "not found",
+        "不存在",
+        "No such file",
+        "error",
+        "failed"
+      ]
+    }
+  },
+  {
+    "id": "division_zero",
+    "category": "error_recovery",
+    "turns": [
+      "用计算器算一下 1除以0"
+    ],
+    "check": {
+      "type": "any_contains",
+      "values": [
+        "ZeroDivision",
+        "division by zero",
+        "除零",
+        "除以零",
+        "error",
+        "failed"
+      ]
+    }
+  },
+  {
+    "id": "rag_gguf",
+    "category": "rag",
+    "turns": [
+      "根据知识库解释一下 GGUF"
+    ],
+    "check": {
+      "type": "all_contains",
+      "values": [
+        "GGUF",
+        "llama.cpp"
+      ]
+    }
+  },
+  {
+    "id": "web_python",
+    "category": "external",
+    "external": true,
+    "turns": [
+      "上网查一下 Python 最新稳定版本"
+    ],
+    "check": {
+      "type": "not_empty"
+    }
+  }
+]

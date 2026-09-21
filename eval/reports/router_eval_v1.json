@@ -1,0 +1,233 @@
+[
+  {
+    "id": "direct_hello_cn",
+    "query": "你好，简单介绍一下你自己",
+    "expected_route": "direct",
+    "actual_route": "direct",
+    "expected_tool": null,
+    "actual_tool": null,
+    "expected_workflow": null,
+    "actual_workflow": null,
+    "passed": true
+  },
+  {
+    "id": "direct_cv_cn",
+    "query": "解释一下计算机视觉是什么",
+    "expected_route": "direct",
+    "actual_route": "direct",
+    "expected_tool": null,
+    "actual_tool": null,
+    "expected_workflow": null,
+    "actual_workflow": null,
+    "passed": true
+  },
+  {
+    "id": "direct_complexity_cn",
+    "query": "计算复杂度是什么？",
+    "expected_route": "direct",
+    "actual_route": "direct",
+    "expected_tool": null,
+    "actual_tool": null,
+    "expected_workflow": null,
+    "actual_workflow": null,
+    "passed": true
+  },
+  {
+    "id": "direct_filename_question",
+    "query": "README.md 是什么类型的文件？",
+    "expected_route": "direct",
+    "actual_route": "direct",
+    "expected_tool": null,
+    "actual_tool": null,
+    "expected_workflow": null,
+    "actual_workflow": null,
+    "passed": true
+  },
+  {
+    "id": "calc_cn",
+    "query": "66乘以7等于多少",
+    "expected_route": "fast_path",
+    "actual_route": "fast_path",
+    "expected_tool": "code_exec",
+    "actual_tool": "code_exec",
+    "expected_workflow": null,
+    "actual_workflow": null,
+    "passed": true
+  },
+  {
+    "id": "calc_explicit_cn",
+    "query": "用计算器算一下12345乘以6789",
+    "expected_route": "fast_path",
+    "actual_route": "fast_path",
+    "expected_tool": "code_exec",
+    "actual_tool": "code_exec",
+    "expected_workflow": null,
+    "actual_workflow": null,
+    "passed": true
+  },
+  {
+    "id": "file_list_cn",
+    "query": "帮我看看工作区有哪些文件",
+    "expected_route": "fast_path",
+    "actual_route": "fast_path",
+    "expected_tool": "file_list",
+    "actual_tool": "file_list",
+    "expected_workflow": null,
+    "actual_workflow": null,
+    "passed": true
+  },
+  {
+    "id": "file_list_en",
+    "query": "List files in the workspace",
+    "expected_route": "fast_path",
+    "actual_route": "fast_path",
+    "expected_tool": "file_list",
+    "actual_tool": "file_list",
+    "expected_workflow": null,
+    "actual_workflow": null,
+    "passed": true
+  },
+  {
+    "id": "file_read_cn",
+    "query": "读取 restart_test.md",
+    "expected_route": "fast_path",
+    "actual_route": "fast_path",
+    "expected_tool": "file_read",
+    "actual_tool": "file_read",
+    "expected_workflow": null,
+    "actual_workflow": null,
+    "passed": true
+  },
+  {
+    "id": "file_read_en",
+    "query": "Read restart_test.md",
+    "expected_route": "fast_path",
+    "actual_route": "fast_path",
+    "expected_tool": "file_read",
+    "actual_tool": "file_read",
+    "expected_workflow": null,
+    "actual_workflow": null,
+    "passed": true
+  },
+  {
+    "id": "rag_cn",
+    "query": "根据知识库解释一下 GGUF",
+    "expected_route": "fast_path",
+    "actual_route": "fast_path",
+    "expected_tool": "query_knowledge_base",
+    "actual_tool": "query_knowledge_base",
+    "expected_workflow": null,
+    "actual_workflow": null,
+    "passed": true
+  },
+  {
+    "id": "rag_en",
+    "query": "Explain GGUF",
+    "expected_route": "fast_path",
+    "actual_route": "fast_path",
+    "expected_tool": "query_knowledge_base",
+    "actual_tool": "query_knowledge_base",
+    "expected_workflow": null,
+    "actual_workflow": null,
+    "passed": true
+  },
+  {
+    "id": "web_cn",
+    "query": "上网查一下 Python 最新版本",
+    "expected_route": "fast_path",
+    "actual_route": "fast_path",
+    "expected_tool": "web_search",
+    "actual_tool": "web_search",
+    "expected_workflow": null,
+    "actual_workflow": null,
+    "passed": true
+  },
+  {
+    "id": "web_en",
+    "query": "Search the web for the latest Python release",
+    "expected_route": "fast_path",
+    "actual_route": "fast_path",
+    "expected_tool": "web_search",
+    "actual_tool": "web_search",
+    "expected_workflow": null,
+    "actual_workflow": null,
+    "passed": true
+  },
+  {
+    "id": "workflow_cn",
+    "query": "上网查一下 Python 最新版本，然后把结果写入 eval_python.md",
+    "expected_route": "workflow",
+    "actual_route": "workflow",
+    "expected_tool": null,
+    "actual_tool": null,
+    "expected_workflow": "web_search_to_file_write",
+    "actual_workflow": "web_search_to_file_write",
+    "passed": true
+  },
+  {
+    "id": "workflow_en",
+    "query": "Search the web for the latest Python release, then save the results to eval_python_en.md",
+    "expected_route": "workflow",
+    "actual_route": "workflow",
+    "expected_tool": null,
+    "actual_tool": null,
+    "expected_workflow": "web_search_to_file_write",
+    "actual_workflow": "web_search_to_file_write",
+    "passed": true
+  },
+  {
+    "id": "file_followup_cn",
+    "query": "再读取刚才那个文件",
+    "expected_route": "fast_path",
+    "actual_route": "fast_path",
+    "expected_tool": "file_read",
+    "actual_tool": "file_read",
+    "expected_workflow": null,
+    "actual_workflow": null,
+    "passed": true
+  },
+  {
+    "id": "file_followup_en",
+    "query": "Read that file again",
+    "expected_route": "fast_path",
+    "actual_route": "fast_path",
+    "expected_tool": "file_read",
+    "actual_tool": "file_read",
+    "expected_workflow": null,
+    "actual_workflow": null,
+    "passed": true
+  },
+  {
+    "id": "calc_followup_cn",
+    "query": "再乘以11",
+    "expected_route": "fast_path",
+    "actual_route": "fast_path",
+    "expected_tool": "code_exec",
+    "actual_tool": "code_exec",
+    "expected_workflow": null,
+    "actual_workflow": null,
+    "passed": true
+  },
+  {
+    "id": "background_title",
+    "query": "### Task:\nGenerate a concise title summarizing the chat history.",
+    "expected_route": "background_direct",
+    "actual_route": "background_direct",
+    "expected_tool": null,
+    "actual_tool": null,
+    "expected_workflow": null,
+    "actual_workflow": null,
+    "passed": true
+  },
+  {
+    "id": "complex_agent_cn",
+    "query": "上网查一下 Python 3.14 的最新变化，比较最重要的三项，整理成中文总结后写入 python_changes_eval.md",
+    "expected_route": "react",
+    "actual_route": "react",
+    "expected_tool": null,
+    "actual_tool": "file_write",
+    "expected_workflow": null,
+    "actual_workflow": null,
+    "passed": true
+  }
+]

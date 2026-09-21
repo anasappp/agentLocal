@@ -1,0 +1,38 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.so
+*.egg
+*.egg-info/
+dist/
+build/
+.eggs/
+.venv/
+venv/
+env/
+
+# Environment
+.env
+
+# ChromaDB
+.chroma/
+
+# Workspace (agent file sandbox)
+workspace/
+
+# Pytest
+.pytest_cache/
+.coverage
+htmlcov/
+
+# VS Code
+.vscode/
+
+# Docker volumes (local bind mounts)
+open-webui/
+
+# OS
+.DS_Store
+Thumbs.db

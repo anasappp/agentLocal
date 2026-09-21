@@ -1,0 +1,998 @@
+
+<!DOCTYPE html>
+
+<html lang="en">
+
+<head>
+
+<meta charset="UTF-8">
+
+<title>
+LocalAgent Eval Dashboard
+</title>
+
+<style>
+
+body {
+    font-family:
+        Inter,
+        -apple-system,
+        BlinkMacSystemFont,
+        "Segoe UI",
+        sans-serif;
+
+    background:
+        #f6f7f9;
+
+    color:
+        #18181b;
+
+    margin:
+        0;
+}
+
+.container {
+    max-width:
+        1180px;
+
+    margin:
+        0 auto;
+
+    padding:
+        48px 28px 80px;
+}
+
+h1 {
+    margin-bottom:
+        6px;
+}
+
+.subtitle {
+    color:
+        #71717a;
+
+    margin-bottom:
+        32px;
+}
+
+.cards {
+    display:
+        grid;
+
+    grid-template-columns:
+        repeat(
+            auto-fit,
+            minmax(
+                180px,
+                1fr
+            )
+        );
+
+    gap:
+        16px;
+
+    margin-bottom:
+        32px;
+}
+
+.card {
+    background:
+        white;
+
+    border:
+        1px solid #e4e4e7;
+
+    border-radius:
+        14px;
+
+    padding:
+        22px;
+}
+
+.metric {
+    font-size:
+        30px;
+
+    font-weight:
+        700;
+
+    margin-top:
+        8px;
+}
+
+.label {
+    color:
+        #71717a;
+
+    font-size:
+        14px;
+}
+
+.section {
+    background:
+        white;
+
+    border:
+        1px solid #e4e4e7;
+
+    border-radius:
+        14px;
+
+    padding:
+        24px;
+
+    margin-top:
+        20px;
+}
+
+table {
+    width:
+        100%;
+
+    border-collapse:
+        collapse;
+}
+
+th,
+td {
+    text-align:
+        left;
+
+    border-bottom:
+        1px solid #eeeeef;
+
+    padding:
+        12px 8px;
+
+    vertical-align:
+        top;
+}
+
+th {
+    color:
+        #71717a;
+
+    font-size:
+        13px;
+}
+
+.pass {
+    font-weight:
+        700;
+}
+
+.fail {
+    font-weight:
+        700;
+
+    text-decoration:
+        underline;
+}
+
+.latency-cell {
+    position:
+        relative;
+
+    min-width:
+        220px;
+}
+
+.latency-bar {
+    position:
+        absolute;
+
+    left:
+        0;
+
+    top:
+        3px;
+
+    height:
+        18px;
+
+    background:
+        #e4e4e7;
+
+    border-radius:
+        4px;
+}
+
+.latency-cell span {
+    position:
+        relative;
+
+    padding-left:
+        6px;
+}
+
+.note {
+    color:
+        #71717a;
+
+    font-size:
+        13px;
+
+    margin-top:
+        18px;
+}
+
+.architecture {
+    font-weight:
+        600;
+}
+
+</style>
+
+</head>
+
+<body>
+
+<div class="container">
+
+<h1>
+LocalAgent Evaluation Dashboard
+</h1>
+
+<div class="subtitle">
+
+Local LLM Agent Runtime ·
+MCP ·
+RAG ·
+Fast Path ·
+Deterministic Workflow
+
+</div>
+
+
+<!-- ================================================== -->
+<!-- Top metrics                                        -->
+<!-- ================================================== -->
+
+<div class="cards">
+
+
+<div class="card">
+
+    <div class="label">
+        Router Accuracy
+    </div>
+
+    <div class="metric">
+        100.0%
+    </div>
+
+    <div class="note">
+        21/21
+        regression cases
+    </div>
+
+</div>
+
+
+<div class="card">
+
+    <div class="label">
+        Core Task Success
+    </div>
+
+    <div class="metric">
+        100.0%
+    </div>
+
+    <div class="note">
+        10/10
+        end-to-end cases
+    </div>
+
+</div>
+
+
+<div class="card">
+
+    <div class="label">
+        P50 Latency
+    </div>
+
+    <div class="metric">
+        429 ms
+    </div>
+
+</div>
+
+
+<div class="card">
+
+    <div class="label">
+        Average Latency
+    </div>
+
+    <div class="metric">
+        1526 ms
+    </div>
+
+</div>
+
+
+<div class="card">
+
+    <div class="label">
+        P95 Latency
+    </div>
+
+    <div class="metric">
+        7139 ms
+    </div>
+
+    <div class="note">
+        Small benchmark;
+        interpret cautiously.
+    </div>
+
+</div>
+
+
+<div class="card">
+
+    <div class="label">
+        Repo Debug Workflow
+    </div>
+
+    <div class="metric">
+        PASS
+    </div>
+
+    <div class="note">
+        5927 ms ·
+        runtime verified
+    </div>
+
+</div>
+
+
+</div>
+
+
+<!-- ================================================== -->
+<!-- Repository Debugging Comparison                    -->
+<!-- ================================================== -->
+
+<div class="section">
+
+<h2>
+Repository Debugging Architecture Comparison
+</h2>
+
+<table>
+
+<thead>
+
+<tr>
+    <th>
+        Architecture
+    </th>
+
+    <th>
+        Result
+    </th>
+
+    <th>
+        Latency
+    </th>
+
+    <th>
+        Execution Strategy
+    </th>
+</tr>
+
+</thead>
+
+<tbody>
+
+
+<tr>
+
+    <td class="architecture">
+        Free-form ReAct
+    </td>
+
+    <td>
+        FAIL
+    </td>
+
+    <td>
+        21848 ms
+    </td>
+
+    <td>
+        LLM dynamically plans all tool calls.
+        In this controlled task it made
+        unnecessary tool calls and failed
+        the final task-level evaluation.
+    </td>
+
+</tr>
+
+
+<tr>
+
+    <td class="architecture">
+        Semi-deterministic Workflow
+    </td>
+
+    <td>
+        PASS
+    </td>
+
+    <td>
+        5927 ms
+    </td>
+
+    <td>
+        Runtime controls deterministic
+        execution steps while the LLM
+        handles root-cause reasoning only.
+    </td>
+
+</tr>
+
+
+</tbody>
+
+</table>
+
+<div class="note">
+3.69× faster than the free-form ReAct baseline in this controlled repository-debugging task.
+</div>
+
+</div>
+
+
+<!-- ================================================== -->
+<!-- Route Distribution                                 -->
+<!-- ================================================== -->
+
+<div class="section">
+
+<h2>
+Route Distribution
+</h2>
+
+<table>
+
+<thead>
+
+<tr>
+    <th>
+        Route
+    </th>
+
+    <th>
+        Cases
+    </th>
+
+    <th>
+        Share
+    </th>
+</tr>
+
+</thead>
+
+<tbody>
+
+
+<tr>
+    <td>background_direct</td>
+    <td>1</td>
+    <td>
+        4.8%
+    </td>
+</tr>
+
+<tr>
+    <td>direct</td>
+    <td>4</td>
+    <td>
+        19.0%
+    </td>
+</tr>
+
+<tr>
+    <td>fast_path</td>
+    <td>13</td>
+    <td>
+        61.9%
+    </td>
+</tr>
+
+<tr>
+    <td>react</td>
+    <td>1</td>
+    <td>
+        4.8%
+    </td>
+</tr>
+
+<tr>
+    <td>workflow</td>
+    <td>2</td>
+    <td>
+        9.5%
+    </td>
+</tr>
+
+
+</tbody>
+
+</table>
+
+</div>
+
+
+<!-- ================================================== -->
+<!-- Category Success                                   -->
+<!-- ================================================== -->
+
+<div class="section">
+
+<h2>
+Category Success
+</h2>
+
+<table>
+
+<thead>
+
+<tr>
+    <th>
+        Category
+    </th>
+
+    <th>
+        Passed
+    </th>
+
+    <th>
+        Success Rate
+    </th>
+</tr>
+
+</thead>
+
+<tbody>
+
+
+<tr>
+    <td>direct</td>
+    <td>
+        1/1
+    </td>
+    <td>
+        100.0%
+    </td>
+</tr>
+
+<tr>
+    <td>error_recovery</td>
+    <td>
+        2/2
+    </td>
+    <td>
+        100.0%
+    </td>
+</tr>
+
+<tr>
+    <td>file</td>
+    <td>
+        2/2
+    </td>
+    <td>
+        100.0%
+    </td>
+</tr>
+
+<tr>
+    <td>multi_turn</td>
+    <td>
+        2/2
+    </td>
+    <td>
+        100.0%
+    </td>
+</tr>
+
+<tr>
+    <td>rag</td>
+    <td>
+        1/1
+    </td>
+    <td>
+        100.0%
+    </td>
+</tr>
+
+<tr>
+    <td>tool_exact</td>
+    <td>
+        2/2
+    </td>
+    <td>
+        100.0%
+    </td>
+</tr>
+
+
+</tbody>
+
+</table>
+
+</div>
+
+
+<!-- ================================================== -->
+<!-- End-to-End Latency                                 -->
+<!-- ================================================== -->
+
+<div class="section">
+
+<h2>
+End-to-End Case Latency
+</h2>
+
+<table>
+
+<thead>
+
+<tr>
+    <th>
+        Case
+    </th>
+
+    <th>
+        Category
+    </th>
+
+    <th>
+        Status
+    </th>
+
+    <th>
+        Latency
+    </th>
+</tr>
+
+</thead>
+
+<tbody>
+
+
+<tr>
+    <td>
+        direct_cv_cn
+    </td>
+
+    <td>
+        direct
+    </td>
+
+    <td>
+        <span class="pass">
+            PASS
+        </span>
+    </td>
+
+    <td>
+        <div class="latency-cell">
+
+            <div
+                class="latency-bar"
+                style="width:32.3%">
+            </div>
+
+            <span>
+                2310 ms
+            </span>
+
+        </div>
+    </td>
+</tr>
+
+<tr>
+    <td>
+        calc_cn
+    </td>
+
+    <td>
+        tool_exact
+    </td>
+
+    <td>
+        <span class="pass">
+            PASS
+        </span>
+    </td>
+
+    <td>
+        <div class="latency-cell">
+
+            <div
+                class="latency-bar"
+                style="width:5.3%">
+            </div>
+
+            <span>
+                379 ms
+            </span>
+
+        </div>
+    </td>
+</tr>
+
+<tr>
+    <td>
+        calc_large_cn
+    </td>
+
+    <td>
+        tool_exact
+    </td>
+
+    <td>
+        <span class="pass">
+            PASS
+        </span>
+    </td>
+
+    <td>
+        <div class="latency-cell">
+
+            <div
+                class="latency-bar"
+                style="width:5.2%">
+            </div>
+
+            <span>
+                371 ms
+            </span>
+
+        </div>
+    </td>
+</tr>
+
+<tr>
+    <td>
+        file_write
+    </td>
+
+    <td>
+        file
+    </td>
+
+    <td>
+        <span class="pass">
+            PASS
+        </span>
+    </td>
+
+    <td>
+        <div class="latency-cell">
+
+            <div
+                class="latency-bar"
+                style="width:23.5%">
+            </div>
+
+            <span>
+                1681 ms
+            </span>
+
+        </div>
+    </td>
+</tr>
+
+<tr>
+    <td>
+        file_read
+    </td>
+
+    <td>
+        file
+    </td>
+
+    <td>
+        <span class="pass">
+            PASS
+        </span>
+    </td>
+
+    <td>
+        <div class="latency-cell">
+
+            <div
+                class="latency-bar"
+                style="width:4.4%">
+            </div>
+
+            <span>
+                313 ms
+            </span>
+
+        </div>
+    </td>
+</tr>
+
+<tr>
+    <td>
+        file_followup_cn
+    </td>
+
+    <td>
+        multi_turn
+    </td>
+
+    <td>
+        <span class="pass">
+            PASS
+        </span>
+    </td>
+
+    <td>
+        <div class="latency-cell">
+
+            <div
+                class="latency-bar"
+                style="width:9.9%">
+            </div>
+
+            <span>
+                709 ms
+            </span>
+
+        </div>
+    </td>
+</tr>
+
+<tr>
+    <td>
+        memory_cn
+    </td>
+
+    <td>
+        multi_turn
+    </td>
+
+    <td>
+        <span class="pass">
+            PASS
+        </span>
+    </td>
+
+    <td>
+        <div class="latency-cell">
+
+            <div
+                class="latency-bar"
+                style="width:22.5%">
+            </div>
+
+            <span>
+                1605 ms
+            </span>
+
+        </div>
+    </td>
+</tr>
+
+<tr>
+    <td>
+        missing_file
+    </td>
+
+    <td>
+        error_recovery
+    </td>
+
+    <td>
+        <span class="pass">
+            PASS
+        </span>
+    </td>
+
+    <td>
+        <div class="latency-cell">
+
+            <div
+                class="latency-bar"
+                style="width:4.5%">
+            </div>
+
+            <span>
+                324 ms
+            </span>
+
+        </div>
+    </td>
+</tr>
+
+<tr>
+    <td>
+        division_zero
+    </td>
+
+    <td>
+        error_recovery
+    </td>
+
+    <td>
+        <span class="pass">
+            PASS
+        </span>
+    </td>
+
+    <td>
+        <div class="latency-cell">
+
+            <div
+                class="latency-bar"
+                style="width:6.0%">
+            </div>
+
+            <span>
+                429 ms
+            </span>
+
+        </div>
+    </td>
+</tr>
+
+<tr>
+    <td>
+        rag_gguf
+    </td>
+
+    <td>
+        rag
+    </td>
+
+    <td>
+        <span class="pass">
+            PASS
+        </span>
+    </td>
+
+    <td>
+        <div class="latency-cell">
+
+            <div
+                class="latency-bar"
+                style="width:100.0%">
+            </div>
+
+            <span>
+                7139 ms
+            </span>
+
+        </div>
+    </td>
+</tr>
+
+
+</tbody>
+
+</table>
+
+<div class="note">
+
+External-provider cases are excluded
+from core success and latency metrics.
+
+</div>
+
+</div>
+
+
+</div>
+
+</body>
+
+</html>
